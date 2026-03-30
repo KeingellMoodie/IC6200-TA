@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Visualizador de Algoritmos</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Courier New', monospace; background: #0f0f0f; color: #e0e0e0; padding: 2rem; min-height: 100vh; }
+
+    h1 { font-size: 1.3rem; font-weight: 400; letter-spacing: 0.1em; color: #fff; margin-bottom: 0.25rem; }
+    .subtitle { font-size: 12px; color: #555; letter-spacing: 0.15em; margin-bottom: 1.5rem; }
+
+    #selector-bar {
+      display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 1.25rem;
+    }
+    .algo-btn {
+      padding: 6px 16px; border: 1px solid #333; border-radius: 4px;
+      background: transparent; color: #888; cursor: pointer;
+      font-family: 'Courier New', monospace; font-size: 12px;
+      letter-spacing: 0.08em; transition: all 0.15s;
+    }
+    .algo-btn:hover  { border-color: #666; color: #ccc; }
+    .algo-btn.active { border-color: #4af; color: #4af; background: rgba(68,170,255,0.08); }
+
+    #grid {
+      display: grid;
+      grid-template-columns: repeat(5, 56px);
+      gap: 3px;
+      margin-bottom: 1rem;
+      width: fit-content;
+    }
+    .grid-cell {
+      width: 56px; height: 56px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px; border-radius: 4px;
+      transition: background 0.25s, transform 0.2s;
+      border: 1px solid #222;
+    }
+    .cell-wall    { background: #1a1a1a; color: #333; border-color: #111; }
+    .cell-empty   { background: #1e1e1e; }
+    .cell-start   { background: #0d5c3a; color: #2ddb8a; border-color: #1a7a50; }
+    .cell-end     { background: #5c1a0d; color: #ff6b3d; border-color: #7a2a1a; }
+    .cell-visited { background: #0d2a3d; color: #2a7aaa; border-color: #1a4060; }
+    .cell-path    { background: #3d3000; color: #ffc840; border-color: #604800; transform: scale(1.06); }
+    .cell-current { background: #1a3a5c; color: #4af; border-color: #2a5a8c; transform: scale(1.1); }
+
+    #controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 0.75rem; }
+    button.ctrl {
+      padding: 6px 14px; border: 1px solid #333; border-radius: 4px;
+      background: transparent; color: #aaa; cursor: pointer;
+      font-family: 'Courier New', monospace; font-size: 12px; transition: all 0.15s;
+    }
+    button.ctrl:hover    { border-color: #555; color: #fff; }
+    button.ctrl:disabled { opacity: 0.3; cursor: not-allowed; }
+    button.ctrl.primary  { border-color: #4af; color: #4af; }
+    button.ctrl.primary:hover { background: rgba(68,170,255,0.1); }
+
+    input[type=range] { accent-color: #4af; width: 100px; }
+
+    #status { font-size: 12px; color: #555; margin-bottom: 0.5rem; min-height: 18px; letter-spacing: 0.04em; }
+    #info   { display: flex; gap: 20px; font-size: 12px; color: #555; flex-wrap: wrap; margin-bottom: 0.75rem; }
+    #info strong { color: #4af; }
+
+    .legend { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 0.5rem; }
+    .legend-item { display: flex; align-items: center; gap: 5px; font-size: 11px; color: #444; letter-spacing: 0.05em; }
+    .legend-box  { width: 12px; height: 12px; border-radius: 2px; flex-shrink: 0; }
+
+    #algo-label {
+      display: inline-block; font-size: 11px; letter-spacing: 0.12em;
+      color: #4af; border: 1px solid #1a4060; border-radius: 3px;
+      padding: 2px 8px; margin-bottom: 0.75rem;
+    }
+  </style>
+</head>
+<body>
+  <h1>VISUALIZADOR DE ALGORITMOS</h1>
+  <div class="subtitle">BÚSQUEDA EN MATRIZ — TEC 2026</div>
+
+  <div id="selector-bar">
+    <button class="algo-btn active" onclick="seleccionar('dijkstra', this)">Dijkstra</button>
+    
+  </div>
+
+  <div id="algo-label">ALGORITMO: Dijkstra</div>
+
+  <div id="grid"></div>
+
+  <div id="controls">
+    <button class="ctrl primary" id="btn-run" onclick="startVisualization()">▶ INICIAR</button>
+    <button class="ctrl"                       onclick="resetGrid()">↺ RESET</button>
+    <span style="font-size:12px; color:#444;">VEL:</span>
+    <input type="range" min="50" max="800" value="400" id="speed-slider">
+    <span id="speed-label" style="font-size:12px; color:#555;">NORMAL</span>
+  </div>
+
+  <div id="status">Selecciona un algoritmo y presiona INICIAR.</div>
+  <div id="info">
+    <span>VISITADOS: <strong id="count-visited">0</strong></span>
+    <span>PASOS: <strong id="count-path">0</strong></span>
+    <span>COSTO: <strong id="count-cost">0</strong></span>
+  </div>
+
+  <div class="legend">
+    <div class="legend-item"><div class="legend-box" style="background:#0d5c3a;"></div>INICIO</div>
+    <div class="legend-item"><div class="legend-box" style="background:#5c1a0d;"></div>FIN</div>
+    <div class="legend-item"><div class="legend-box" style="background:#1a1a1a;"></div>PARED</div>
+    <div class="legend-item"><div class="legend-box" style="background:#1a3a5c;"></div>ACTUAL</div>
+    <div class="legend-item"><div class="legend-box" style="background:#0d2a3d;"></div>VISITADO</div>
+    <div class="legend-item"><div class="legend-box" style="background:#3d3000;"></div>CAMINO</div>
+  </div>
+
+  <script>
+    const VACIO=0, PARED=1, INICIO=2, FIN=3;
+    let matriz=[], cellEls=[], running=false, stopFlag=false;
+    let algoritmoActual = 'astar';
+
+    function seleccionar(algo, btn) {
+      if (running) return;
+      algoritmoActual = algo;
+      document.querySelectorAll('.algo-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      document.getElementById('algo-label').textContent = 'ALGORITMO: ' + algo.toUpperCase();
+      resetGrid();
+    }
+
+    async function init() {
+      const res  = await fetch('/api/matriz');
+      const data = await res.json();
+      matriz = data.matriz;
+      buildGrid();
+    }
+
+    function buildGrid() {
+      const grid = document.getElementById('grid');
+      const cols = matriz[0].length;
+      grid.style.gridTemplateColumns = `repeat(${cols}, 56px)`;
+      grid.innerHTML = ''; cellEls = [];
+      for (let r = 0; r < matriz.length; r++) {
+        cellEls[r] = [];
+        for (let c = 0; c < cols; c++) {
+          const d = document.createElement('div');
+          d.className = 'grid-cell ' + cellClass(matriz[r][c]);
+          d.textContent = cellIcon(matriz[r][c]);
+          grid.appendChild(d);
+          cellEls[r][c] = d;
+        }
+      }
+    }
+
+    function cellClass(v) {
+      if (v === PARED)  return 'cell-wall';
+      if (v === INICIO) return 'cell-start';
+      if (v === FIN)    return 'cell-end';
+      return 'cell-empty';
+    }
+    function cellIcon(v) {
+      if (v === INICIO) return '▶';
+      if (v === FIN)    return '◼';
+      if (v === PARED)  return '█';
+      return '';
+    }
+    function setCell(r, c, cls, icon = null) {
+      const d = cellEls[r][c];
+      d.className = 'grid-cell ' + cls;
+      if (icon !== null) d.textContent = icon;
+    }
+    function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
+    function getSpeed() {
+      const v = parseInt(document.getElementById('speed-slider').value);
+      const lbl = document.getElementById('speed-label');
+      lbl.textContent = v >= 600 ? 'LENTO' : v >= 300 ? 'NORMAL' : 'RÁPIDO';
+      return 850 - v;
+    }
+    document.getElementById('speed-slider').oninput = getSpeed;
+
+    function setStatus(msg) { document.getElementById('status').textContent = msg; }
+
+    function resetGrid() {
+      stopFlag = true; running = false;
+      buildGrid();
+      setStatus('Selecciona un algoritmo y presiona INICIAR.');
+      document.getElementById('count-visited').textContent = '0';
+      document.getElementById('count-path').textContent    = '0';
+      document.getElementById('count-cost').textContent    = '0';
+      document.getElementById('btn-run').disabled = false;
+    }
+
+    async function startVisualization() {
+      if (running) return;
+      running = true; stopFlag = false;
+      document.getElementById('btn-run').disabled = true;
+      buildGrid();
+
+      const res   = await fetch(`/api/resolver/${algoritmoActual}`);
+      const data  = await res.json();
+      const pasos = data.pasos;
+      let visitCount = 0;
+
+      const inicio = matriz.flatMap((row,r)=>row.map((v,c)=>v===INICIO?[r,c]:null)).find(Boolean);
+      const fin    = matriz.flatMap((row,r)=>row.map((v,c)=>v===FIN   ?[r,c]:null)).find(Boolean);
+
+      for (const paso of pasos) {
+        if (stopFlag) break;
+
+        if (paso.type === 'visit') {
+          const [r, c] = paso.pos;
+          visitCount++;
+          document.getElementById('count-visited').textContent = visitCount;
+
+          // Mostrar info según algoritmo
+          if (paso.g !== undefined) {
+            setStatus(`Visitando (${r},${c}) | g=${paso.g}, h=${paso.h}, f=${paso.f}`);
+          } else if (paso.costo !== undefined) {
+            setStatus(`Visitando (${r},${c}) | costo acumulado=${paso.costo}`);
+          } else {
+            setStatus(`Visitando (${r},${c})`);
+          }
+
+          const esInicio = r===inicio[0] && c===inicio[1];
+          const esFin    = r===fin[0]    && c===fin[1];
+          if (!esInicio && !esFin) setCell(r, c, 'cell-current', '●');
+          await delay(getSpeed());
+          if (!esInicio && !esFin) setCell(r, c, 'cell-visited', '·');
+
+        } else if (paso.type === 'path') {
+          document.getElementById('count-path').textContent = paso.camino.length;
+          document.getElementById('count-cost').textContent = paso.costo;
+          setStatus('Camino encontrado. Mostrando ruta óptima...');
+          for (const [r, c] of paso.camino) {
+            if (stopFlag) break;
+            const esInicio = r===inicio[0] && c===inicio[1];
+            const esFin    = r===fin[0]    && c===fin[1];
+            if      (esInicio) setCell(r, c, 'cell-start', '▶');
+            else if (esFin)    setCell(r, c, 'cell-end',   '◼');
+            else               setCell(r, c, 'cell-path',  '★');
+            await delay(120);
+          }
+          setStatus(`✓ RUTA ÓPTIMA — ${paso.camino.length} pasos | costo: ${paso.costo}`);
+
+        } else if (paso.type === 'no_path') {
+          setStatus('✗ No se encontró camino.');
+        }
+      }
+
+      running = false;
+      document.getElementById('btn-run').disabled = false;
+    }
+
+    init();
+    getSpeed();
+  </script>
+</body>
+</html>
