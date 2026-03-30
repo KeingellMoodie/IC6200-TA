@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Minimax — Tres en Raya</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Courier New', monospace; background: #0f0f0f; color: #e0e0e0; padding: 2rem; min-height: 100vh; }
+
+    h1 { font-size: 1.3rem; font-weight: 400; letter-spacing: 0.1em; color: #fff; margin-bottom: 0.25rem; }
+    .subtitle { font-size: 12px; color: #555; letter-spacing: 0.15em; margin-bottom: 1.5rem; }
+
+    #board {
+      display: grid;
+      grid-template-columns: repeat(3, 100px);
+      grid-template-rows: repeat(3, 100px);
+      gap: 6px;
+      width: fit-content;
+      margin-bottom: 1.25rem;
+    }
+
+    .cell {
+      width: 100px; height: 100px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 2.2rem; font-weight: 400;
+      border-radius: 6px;
+      border: 1px solid #222;
+      background: #1a1a1a;
+      transition: background 0.3s, transform 0.2s, color 0.3s;
+      letter-spacing: 0;
+    }
+    .cell-x        { color: #4af; background: #0d2a3d; border-color: #1a4060; }
+    .cell-o        { color: #ff6b3d; background: #2a0d05; border-color: #5c1a0d; }
+    .cell-empty    { color: #333; }
+    .cell-highlight { transform: scale(1.08); }
+    .cell-win      { background: #1a3d1a; border-color: #2a6a2a; }
+
+    #controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 0.75rem; }
+    button.ctrl {
+      padding: 6px 16px; border: 1px solid #333; border-radius: 4px;
+      background: transparent; color: #aaa; cursor: pointer;
+      font-family: 'Courier New', monospace; font-size: 12px;
+      letter-spacing: 0.08em; transition: all 0.15s;
+    }
+    button.ctrl:hover    { border-color: #555; color: #fff; }
+    button.ctrl:disabled { opacity: 0.3; cursor: not-allowed; }
+    button.ctrl.primary  { border-color: #4af; color: #4af; }
+    button.ctrl.primary:hover { background: rgba(68,170,255,0.1); }
+
+    input[type=range] { accent-color: #4af; width: 100px; }
+
+    #status {
+      font-size: 13px; color: #4af; margin-bottom: 0.75rem;
+      min-height: 20px; letter-spacing: 0.06em;
+    }
+    #status.win-x  { color: #4af; }
+    #status.win-o  { color: #ff6b3d; }
+    #status.empate { color: #ffc840; }
+
+    #info { display: flex; gap: 20px; font-size: 12px; color: #555; flex-wrap: wrap; margin-bottom: 0.75rem; }
+    #info strong { color: #4af; }
+
+    .legend { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 0.5rem; }
+    .legend-item { display: flex; align-items: center; gap: 6px; font-size: 11px; color: #444; letter-spacing: 0.05em; }
+    .legend-box  { width: 14px; height: 14px; border-radius: 3px; flex-shrink: 0; }
+
+    #turno-badge {
+      display: inline-block; font-size: 11px; letter-spacing: 0.12em;
+      border-radius: 3px; padding: 2px 8px; margin-bottom: 0.75rem;
+      border: 1px solid #1a4060; color: #4af; background: transparent;
+      transition: all 0.3s;
+    }
+    #turno-badge.turno-o { border-color: #5c1a0d; color: #ff6b3d; }
+  </style>
+</head>
+<body>
+  <h1>MINIMAX — TRES EN RAYA</h1>
+  <div class="subtitle">IA vs IA — TEC 2026</div>
+
+  <div id="turno-badge">TURNO: —</div>
+  <div id="board"></div>
+
+  <div id="controls">
+    <button class="ctrl primary" id="btn-sim" onclick="iniciarSimulacion()">▶ SIMULAR PARTIDA</button>
+    <button class="ctrl" onclick="resetPartida()">↺ RESET</button>
+    <span style="font-size:12px; color:#444;">VEL:</span>
+    <input type="range" min="100" max="1200" value="700" id="speed-slider">
+    <span id="speed-label" style="font-size:12px; color:#555;">NORMAL</span>
+  </div>
+
+  <div id="status">Presiona SIMULAR PARTIDA para ver al Minimax en acción.</div>
+
+  <div id="info">
+    <span>JUGADAS: <strong id="count-jugadas">0</strong></span>
+    <span>RESULTADO: <strong id="count-resultado">—</strong></span>
+  </div>
+
+  <div class="legend">
+    <div class="legend-item"><div class="legend-box" style="background:#0d2a3d; border:1px solid #1a4060;"></div>X (MAX)</div>
+    <div class="legend-item"><div class="legend-box" style="background:#2a0d05; border:1px solid #5c1a0d;"></div>O (MIN)</div>
+    <div class="legend-item"><div class="legend-box" style="background:#1a3d1a; border:1px solid #2a6a2a;"></div>GANADOR</div>
+  </div>
+
+  <script>
+    let running = false, stopFlag = false;
+    let estadosCache = null;
+
+    function buildBoard(board, ultimaAccion = null, ganador = null) {
+      const container = document.getElementById('board');
+      container.innerHTML = '';
+      for (let r = 0; r < 3; r++) {
+        for (let c = 0; c < 3; c++) {
+          const cell = document.createElement('div');
+          const val  = board[r][c];
+          let cls    = 'cell cell-empty';
+          let texto  = '·';
+
+          if (val === 'X') { cls = 'cell cell-x'; texto = 'X'; }
+          if (val === 'O') { cls = 'cell cell-o'; texto = 'O'; }
+
+          if (ultimaAccion && ultimaAccion[0] === r && ultimaAccion[1] === c) {
+            cls += ' cell-highlight';
+          }
+          cell.className = cls;
+          cell.textContent = texto;
+          container.appendChild(cell);
+        }
+      }
+    }
+
+    function setStatus(msg, tipo = '') {
+      const el = document.getElementById('status');
+      el.textContent = msg;
+      el.className = tipo;
+    }
+
+    function setTurno(jugador) {
+      const badge = document.getElementById('turno-badge');
+      if (!jugador) { badge.textContent = 'TURNO: —'; badge.className = ''; return; }
+      badge.textContent = `TURNO: ${jugador}`;
+      badge.className   = jugador === 'O' ? 'turno-o' : '';
+    }
+
+    function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+    function getSpeed() {
+      const v   = parseInt(document.getElementById('speed-slider').value);
+      const lbl = document.getElementById('speed-label');
+      lbl.textContent = v >= 900 ? 'LENTO' : v >= 500 ? 'NORMAL' : 'RÁPIDO';
+      return 1300 - v;
+    }
+    document.getElementById('speed-slider').oninput = getSpeed;
+
+    function resetPartida() {
+      stopFlag = true; running = false;
+      estadosCache = null;
+      buildBoard([[null,null,null],[null,null,null],[null,null,null]]);
+      setStatus('Presiona SIMULAR PARTIDA para ver al Minimax en acción.');
+      setTurno(null);
+      document.getElementById('count-jugadas').textContent  = '0';
+      document.getElementById('count-resultado').textContent = '—';
+      document.getElementById('btn-sim').disabled = false;
+    }
+
+    async function iniciarSimulacion() {
+      if (running) return;
+      running  = true;
+      stopFlag = false;
+      document.getElementById('btn-sim').disabled = true;
+
+      // Si no tenemos estados cacheados, los pedimos al servidor
+      if (!estadosCache) {
+        setStatus('Calculando partida óptima...');
+        const res  = await fetch('/api/simular');
+        const data = await res.json();
+        estadosCache = data.estados;
+      }
+
+      const estados = estadosCache;
+      let jugadas   = 0;
+
+      for (const estado of estados) {
+        if (stopFlag) break;
+
+        buildBoard(estado.board, estado.accion);
+
+        if (estado.accion) {
+          jugadas++;
+          document.getElementById('count-jugadas').textContent = jugadas;
+          setTurno(estado.jugador);
+          setStatus(estado.mensaje);
+        } else if (estado.fin) {
+          setTurno(null);
+          const score = estado.score;
+          if (score === 1)       { setStatus('✓ ' + estado.mensaje, 'win-x');  document.getElementById('count-resultado').textContent = 'X GANA'; }
+          else if (score === -1) { setStatus('✓ ' + estado.mensaje, 'win-o');  document.getElementById('count-resultado').textContent = 'O GANA'; }
+          else                   { setStatus('◈ ' + estado.mensaje, 'empate'); document.getElementById('count-resultado').textContent = 'EMPATE'; }
+          break;
+        } else {
+          setStatus(estado.mensaje);
+        }
+
+        await delay(getSpeed());
+      }
+
+      running = false;
+      document.getElementById('btn-sim').disabled = false;
+    }
+
+    // Inicializar tablero vacío
+    buildBoard([[null,null,null],[null,null,null],[null,null,null]]);
+    getSpeed();
+  </script>
+</body>
+</html>
