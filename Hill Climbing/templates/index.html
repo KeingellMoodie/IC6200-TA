@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Simulated Annealing</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Courier New', monospace; background: #0f0f0f; color: #e0e0e0; padding: 2rem; min-height: 100vh; }
+
+    h1 { font-size: 1.3rem; font-weight: 400; letter-spacing: 0.1em; color: #fff; margin-bottom: 0.25rem; }
+    .subtitle { font-size: 12px; color: #555; letter-spacing: 0.15em; margin-bottom: 1.5rem; }
+
+    #grid-wrapper { margin-bottom: 1.25rem; overflow-x: auto; }
+    #grid {
+      display: grid;
+      gap: 3px;
+      width: fit-content;
+    }
+    .cell {
+      width: 52px; height: 52px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.5rem;
+      border-radius: 5px;
+      border: 1px solid #1e1e1e;
+      background: #161616;
+      transition: background 0.3s, transform 0.2s;
+    }
+    .cell-empty    { background: #161616; }
+    .cell-house    { background: #1a2a1a; border-color: #2a4a2a; }
+    .cell-hospital { background: #1a1a3d; border-color: #2a2a6a; transform: scale(1.06); }
+    .cell-hospital.moved { background: #1a3d3a; border-color: #2a6a5a; transform: scale(1.1); }
+
+    #controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 0.75rem; }
+    button.ctrl {
+      padding: 6px 16px; border: 1px solid #333; border-radius: 4px;
+      background: transparent; color: #aaa; cursor: pointer;
+      font-family: 'Courier New', monospace; font-size: 12px;
+      letter-spacing: 0.08em; transition: all 0.15s;
+    }
+    button.ctrl:hover    { border-color: #555; color: #fff; }
+    button.ctrl:disabled { opacity: 0.3; cursor: not-allowed; }
+    button.ctrl.primary  { border-color: #4af; color: #4af; }
+    button.ctrl.primary:hover { background: rgba(68,170,255,0.08); }
+    input[type=range] { accent-color: #4af; width: 100px; }
+
+    #status { font-size: 12px; color: #666; margin-bottom: 0.5rem; min-height: 18px; letter-spacing: 0.04em; }
+    #status.mejora  { color: #2ddb8a; }
+    #status.aceptado{ color: #ffc840; }
+    #status.final   { color: #4af; }
+
+    #info { display: flex; gap: 20px; font-size: 12px; color: #555; flex-wrap: wrap; margin-bottom: 1rem; }
+    #info strong { color: #4af; }
+
+    /* Barra de temperatura */
+    #temp-bar-wrap {
+      margin-bottom: 1rem;
+      width: 300px;
+    }
+    #temp-label { font-size: 11px; color: #555; letter-spacing: 0.08em; margin-bottom: 4px; }
+    #temp-bar-bg {
+      height: 6px; background: #1e1e1e; border-radius: 3px; overflow: hidden;
+    }
+    #temp-bar {
+      height: 6px; background: #e05a30;
+      border-radius: 3px;
+      transition: width 0.4s, background 0.4s;
+      width: 100%;
+    }
+
+    .legend { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 0.5rem; }
+    .legend-item { display: flex; align-items: center; gap: 6px; font-size: 11px; color: #444; }
+    .legend-box  { width: 14px; height: 14px; border-radius: 3px; flex-shrink: 0; font-size: 11px; display:flex; align-items:center; justify-content:center; }
+  </style>
+</head>
+<body>
+  <h1>SIMULATED ANNEALING</h1>
+  <div class="subtitle">OPTIMIZACIÓN DE HOSPITALES — TEC 2026</div>
+
+  <div id="grid-wrapper"><div id="grid"></div></div>
+
+  <div id="temp-bar-wrap">
+    <div id="temp-label">TEMPERATURA: —</div>
+    <div id="temp-bar-bg"><div id="temp-bar"></div></div>
+  </div>
+
+  <div id="controls">
+    <button class="ctrl primary" id="btn-run" onclick="iniciar()">▶ INICIAR</button>
+    <button class="ctrl" onclick="resetGrid()">↺ RESET</button>
+    <span style="font-size:12px;color:#444;">VEL:</span>
+    <input type="range" min="30" max="900" value="500" id="speed-slider">
+    <span id="speed-label" style="font-size:12px;color:#555;">NORMAL</span>
+  </div>
+
+  <div id="status">Presiona INICIAR para optimizar las posiciones de los hospitales.</div>
+
+  <div id="info">
+    <span>COSTO INICIAL: <strong id="costo-inicial">—</strong></span>
+    <span>COSTO ACTUAL: <strong id="costo-actual">—</strong></span>
+    <span>PASOS: <strong id="count-pasos">0</strong></span>
+  </div>
+
+  <div class="legend">
+    <div class="legend-item"><div class="legend-box" style="background:#1a2a1a; border:1px solid #2a4a2a;">🏠</div>Casa</div>
+    <div class="legend-item"><div class="legend-box" style="background:#1a1a3d; border:1px solid #2a2a6a;">🏥</div>Hospital</div>
+    <div class="legend-item"><div class="legend-box" style="background:#1a3d3a; border:1px solid #2a6a5a;">🏥</div>Hospital (movido)</div>
+  </div>
+
+  <script>
+    let running = false, stopFlag = false;
+    let mapActual = [], ROWS = 0, COLS = 0;
+    let T_INITIAL = 1000;
+
+    async function init() {
+      const res  = await fetch('/api/mapa_inicial');
+      const data = await res.json();
+      ROWS = data.rows; COLS = data.cols;
+      mapActual = data.map;
+      document.getElementById('costo-inicial').textContent = data.cost;
+      document.getElementById('costo-actual').textContent  = data.cost;
+      buildGrid(data.map);
+    }
+
+    function buildGrid(map, movedPos = null) {
+      const grid = document.getElementById('grid');
+      grid.style.gridTemplateColumns = `repeat(${COLS}, 52px)`;
+      grid.innerHTML = '';
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          const cell = document.createElement('div');
+          const val  = map[r][c];
+          let cls = 'cell cell-empty', txt = '';
+          if (val === '🏠') { cls = 'cell cell-house';    txt = '🏠'; }
+          if (val === '🏥') {
+            cls = 'cell cell-hospital';
+            txt = '🏥';
+            if (movedPos && movedPos[0] === r && movedPos[1] === c) cls += ' moved';
+          }
+          cell.className   = cls;
+          cell.textContent = txt;
+          grid.appendChild(cell);
+        }
+      }
+    }
+
+    function setStatus(msg, cls = '') {
+      const el = document.getElementById('status');
+      el.textContent = msg; el.className = cls;
+    }
+
+    function setTemp(temp, max) {
+      const pct = Math.min(100, (temp / max) * 100);
+      document.getElementById('temp-bar').style.width = pct + '%';
+      const r = Math.round(224 * pct / 100);
+      const b = Math.round(48  * (1 - pct / 100));
+      document.getElementById('temp-bar').style.background = `rgb(${r}, 90, ${b})`;
+      document.getElementById('temp-label').textContent = `TEMPERATURA: ${temp}`;
+    }
+
+    function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
+    function getSpeed() {
+      const v = parseInt(document.getElementById('speed-slider').value);
+      document.getElementById('speed-label').textContent = v >= 700 ? 'LENTO' : v >= 350 ? 'NORMAL' : 'RÁPIDO';
+      return 930 - v;
+    }
+    document.getElementById('speed-slider').oninput = getSpeed;
+
+    function resetGrid() {
+      stopFlag = true; running = false;
+      document.getElementById('btn-run').disabled = false;
+      document.getElementById('count-pasos').textContent = '0';
+      setStatus('Presiona INICIAR para optimizar las posiciones de los hospitales.');
+      setTemp(T_INITIAL, T_INITIAL);
+      init();
+    }
+
+    async function iniciar() {
+      if (running) return;
+      running = true; stopFlag = false;
+      document.getElementById('btn-run').disabled = true;
+      setStatus('Calculando optimización...');
+
+      const res   = await fetch('/api/resolver');
+      const data  = await res.json();
+      const pasos = data.pasos;
+      const costoInicial = pasos[0].cost;
+      T_INITIAL = pasos[0].temperature || 1000;
+
+      document.getElementById('costo-inicial').textContent = costoInicial;
+
+      for (let i = 0; i < pasos.length; i++) {
+        if (stopFlag) break;
+        const paso = pasos[i];
+
+        // Detectar hospital movido comparando con paso anterior
+        let movedPos = null;
+        if (i > 0) {
+          const prev = pasos[i-1].map;
+          for (let r = 0; r < ROWS; r++) {
+            for (let c = 0; c < COLS; c++) {
+              if (paso.map[r][c] === '🏥' && prev[r][c] !== '🏥') {
+                movedPos = [r, c];
+              }
+            }
+          }
+        }
+
+        buildGrid(paso.map, movedPos);
+        document.getElementById('costo-actual').textContent  = paso.cost;
+        document.getElementById('count-pasos').textContent   = i;
+        setTemp(paso.temperature, pasos[0].temperature || 1000);
+
+        const cls = paso.tipo === 'mejora' ? 'mejora' : paso.tipo === 'aceptado' ? 'aceptado' : paso.tipo === 'final' ? 'final' : '';
+        setStatus(paso.mensaje, cls);
+
+        await delay(getSpeed());
+      }
+
+      running = false;
+      document.getElementById('btn-run').disabled = false;
+    }
+
+    init();
+    getSpeed();
+  </script>
+</body>
+</html>
